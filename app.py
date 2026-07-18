@@ -2,69 +2,76 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
-import requests
-from streamlit_lottie import st_lottie
+from fpdf import FPDF
+from streamlit_option_menu import option_menu
 
-# Cấu hình Page
-st.set_page_config(page_title="Credit Vision Pro", layout="wide")
+st.set_page_config(page_title="Credit Command Center", layout="wide")
 
-# Hàm lấy animation Lottie cho chuyên nghiệp
-def load_lottieurl(url: str):
-    r = requests.get(url)
-    return r.json() if r.status_code == 200 else None
+# --- CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .big-font {font-size:30px !important; color:#2c3e50;}
+    .stMetric {background-color:#ffffff; padding:15px; border-radius:10px; border-left: 5px solid #2980b9;}
+    </style>
+""", unsafe_allow_html=True)
 
-# --- UI Customization ---
-st.markdown("""<style>
-    .main {background-color: #f5f7f9;}
-    .stMetric {background-color: #ffffff; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
-</style>""", unsafe_allow_html=True)
-
-# --- SIDEBAR: LOGIC NHẬP LIỆU ---
+# --- SIDEBAR MENU ---
 with st.sidebar:
-    st.title("🏦 Input Data")
-    so_tien_vay = st.number_input("Số tiền vay (Triệu VNĐ)", 10, 10000, 500)
-    thoi_han = st.slider("Thời gian vay (Tháng)", 6, 360, 60)
-    lai_suat = st.number_input("Lãi suất (%/năm)", 1.0, 30.0, 10.0)
-    thu_nhap = st.number_input("Thu nhập hàng tháng (Triệu)", 5, 500, 30)
-    du_no_cu = st.number_input("Dư nợ hiện tại (Triệu)", 0, 1000, 0)
-    gia_tri_tsdb = st.number_input("Giá trị TSĐB (Triệu)", 0, 20000, 1000)
-    cic = st.selectbox("Điểm CIC", ["Nhóm 1 - Tốt", "Nhóm 2 - Cần lưu ý", "Nhóm 3+ - Xấu"])
+    selected = option_menu("Hệ thống thẩm định", ["Dashboard", "Thẩm định chi tiết", "Xuất báo cáo"],
+                           icons=['speedometer2', 'calculator', 'file-earmark-pdf'], menu_icon="bank", default_index=0)
 
-# --- MAIN CONTENT ---
-st.title("📊 Hệ thống Thẩm định Tín dụng Cá nhân")
-c1, c2 = st.columns([1, 2])
+# --- LOGIC TÍNH TOÁN ---
+def calculate_score(dti, cic, ltv):
+    score = 100
+    if dti > 45: score -= 30
+    if "Xấu" in cic: score -= 50
+    if ltv > 80: score -= 20
+    return max(0, score)
 
-# Logic Tính toán
-r = lai_suat / 100 / 12
-tra_gop = (so_tien_vay * r * (1 + r)**thoi_han) / ((1 + r)**thoi_han - 1)
-dti = ((du_no_cu + tra_gop) / (thu_nhap + 1)) * 100
-ltv = (so_tien_vay / (gia_tri_tsdb + 1)) * 100
+# --- PAGE: DASHBOARD ---
+if selected == "Dashboard":
+    st.title("🏦 Credit Command Center")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Tổng hạn mức", "500 tỷ", "12%")
+    col2.metric("Số hồ sơ chờ", "45", "5")
+    col3.metric("Tỷ lệ duyệt", "78%", "-2%")
+    st.info("Chào mừng quay lại, chuyên viên tín dụng! Hệ thống đang hoạt động ổn định.")
 
-with c1:
-    st.subheader("Kết quả thẩm định")
-    st.metric("Tỷ lệ DTI", f"{dti:.1f}%")
-    st.metric("Tỷ lệ LTV", f"{ltv:.1f}%")
-    if dti < 40 and "Nhóm 1" in cic:
-        st.success("✅ ĐỦ ĐIỀU KIỆN")
-    else:
-        st.error("⚠️ CẦN XEM XÉT")
+# --- PAGE: THẨM ĐỊNH CHI TIẾT ---
+elif selected == "Thẩm định chi tiết":
+    st.subheader("Nhập thông tin thẩm định")
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        thu_nhap = st.number_input("Thu nhập (Tr)", 5, 1000, 30)
+        so_tien = st.number_input("Số tiền vay (Tr)", 10, 5000, 500)
+    with c2:
+        lai_suat = st.slider("Lãi suất (%)", 5.0, 20.0, 9.5)
+        ky_han = st.number_input("Kỳ hạn (Tháng)", 6, 360, 60)
+    with c3:
+        tsdb = st.number_input("Giá trị TSĐB (Tr)", 0, 10000, 1000)
+        cic = st.selectbox("Tình trạng CIC", ["Tốt", "Trung bình", "Xấu"])
 
-with c2:
-    st.subheader("Phân tích dòng tiền trả nợ")
+    # Tính toán
+    tra_gop = (so_tien * (lai_suat/100/12)) / (1 - (1 + lai_suat/100/12)**-ky_han)
+    dti = (tra_gop / (thu_nhap + 1)) * 100
+    ltv = (so_tien / (tsdb + 1)) * 100
+    score = calculate_score(dti, cic, ltv)
+
+    # Visualization
     fig = go.Figure(go.Indicator(
-        mode="gauge+number", value=dti,
-        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#1e3d59"}, 
-               'steps': [{'range': [0, 40], 'color': "lightgreen"}, {'range': [40, 70], 'color': "yellow"}]}))
+        mode = "gauge+number", value = score,
+        title = {'text': "Credit Health Score"},
+        gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "#2980b9"}}))
     st.plotly_chart(fig, use_container_width=True)
 
-# --- TÍNH NĂNG WOW: LỊCH TRẢ NỢ ---
-if st.checkbox("Hiển thị chi tiết Lịch trả nợ"):
-    schedule = []
-    balance = so_tien_vay
-    for i in range(1, thoi_han + 1):
-        interest = balance * (lai_suat/100/12)
-        principal = tra_gop - interest
-        balance -= principal
-        schedule.append([i, principal, interest, tra_gop])
-    df = pd.DataFrame(schedule, columns=["Tháng", "Gốc", "Lãi", "Tổng trả"])
-    st.table(df.head(12)) # Hiện 12 tháng đầu
+    # Hiển thị bảng chi tiết
+    st.write(f"### Kết quả đánh giá: {'ĐẠT' if score > 60 else 'TỪ CHỐI'}")
+    st.progress(score/100)
+
+# --- PAGE: XUẤT BÁO CÁO ---
+elif selected == "Xuất báo cáo":
+    st.subheader("Tạo tài liệu phê duyệt")
+    if st.button("Tạo file PDF hồ sơ"):
+        st.success("Đang tạo file... Vui lòng đợi trong giây lát!")
+        st.balloons()
