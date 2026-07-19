@@ -2,5 +2,7 @@ streamlit
 pandas
 plotly
 numpy
+mysql-connector-python
+sqlalchemy
 fpdf
 streamlit-option-menu
